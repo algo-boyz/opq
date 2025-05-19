@@ -24,7 +24,6 @@ Todo :: struct {
     updated_at:  time.Time `json:"updated_at" db:"updated_at"`,
 }
 
-// get_todo retrieves a single todo by its ID, populating the `todo_dest` struct.
 get_todo :: proc(conn: pq.Conn, id: i64, todo_dest: ^Todo) -> opq.Err {
     query :: `
     SELECT id, title, description, completed, created_at, updated_at 
@@ -35,9 +34,6 @@ get_todo :: proc(conn: pq.Conn, id: i64, todo_dest: ^Todo) -> opq.Err {
 }
 
 
-// create_todo creates a new todo item using data from a Todo struct.
-// This version explicitly passes fields from `todo_data` as parameters.
-// Returns the ID of the newly created todo.
 create_todo :: proc(conn: pq.Conn, todo_data: ^Todo) -> (id: i64, err: opq.Err) {
     query :: `
     INSERT INTO todos (title, description) 
@@ -46,7 +42,7 @@ create_todo :: proc(conn: pq.Conn, todo_data: ^Todo) -> (id: i64, err: opq.Err) 
     `
     desc_param: any = nil
     if todo_data.description != nil {
-        desc_param = todo_data.description^ // Pass the actual string
+        desc_param = todo_data.description^
     }
     result, exec_err := opq.exec(conn, query, todo_data.title, desc_param)
     if exec_err != .None {
@@ -55,7 +51,6 @@ create_todo :: proc(conn: pq.Conn, todo_data: ^Todo) -> (id: i64, err: opq.Err) 
     return opq.id_from_result(result)
 }
 
-// --- Main Application Logic (Updated to use new functions) ---
 main :: proc() {
     tracker: memtrack.MemoryTracker
     context.allocator = memtrack.init(&tracker, context.allocator)  
@@ -85,7 +80,6 @@ main :: proc() {
         return
     }
 
-    // Example: Create a new todo using create_todo
     new_todo_data: Todo
     new_todo_data.title = "Todo"
     desc_content := "Description from todo."
@@ -93,7 +87,6 @@ main :: proc() {
     new_todo_data.description^ = strings.clone(desc_content)
     new_id, create_todo_err := create_todo(conn, &new_todo_data)
     
-    // Clean up allocated description if it was set for new_todo_data
     if new_todo_data.description != nil {
         delete(new_todo_data.description^)
         free(new_todo_data.description)
@@ -104,8 +97,7 @@ main :: proc() {
     }
     log.infof("Created new todo with ID: %d", new_id)
 
-    // Example: Get the created todo using get_todo
-    fetched_todo: Todo // Struct to be filled
+    fetched_todo: Todo
     get_err := get_todo(conn, new_id, &fetched_todo)
     if get_err != .None {
         if get_err == .Not_Found {

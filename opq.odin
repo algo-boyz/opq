@@ -23,28 +23,6 @@ Err :: enum i32 {
     Column_Not_Found = 10,
 }
 
-BOOLOID : u32 = 16
-BYTEAOID : u32 = 17
-CHAROID : u32 = 18
-NAMEOID : u32 = 19
-INT8OID : u32 = 20  // BIGINT / BIGSERIAL
-INT2OID : u32 = 21
-INT4OID : u32 = 23
-TEXTOID : u32 = 25
-OIDOID : u32 = 26
-JSONOID : u32 = 114
-FLOAT4OID : u32 = 700
-FLOAT8OID : u32 = 701
-UNKNOWNOID : u32 = 705
-VARCHAROID : u32 = 1043
-DATEOID : u32 = 1082
-TIMEOID : u32 = 1083
-TIMESTAMPOID : u32 = 1114
-TIMESTAMPTZOID : u32 = 1184 // For TIMESTAMP WITH TIME ZONE
-NUMERICOID : u32 = 1700
-UUIDOID : u32 = 2950
-JSONBOID : u32 = 3802
-
 to_string :: proc(c_str: cstring) -> string {
     if c_str == nil {
         return ""
@@ -288,19 +266,16 @@ query_row :: proc(conn: pq.Conn, dest: ^$T, query: cstring, args: ..any) -> Err 
         tag_val, has_tag := get_tag_val(s.tags[i])
         if !has_tag {
             fmt.println("No db tag found for field", i, "skipping")
-            // If no db tag, this field is not mapped from the database. Skip it.
             continue
         }
-        // Find the column index in the result set for this db_tag_val.
         tag_val_cstr := strings.clone_to_cstring(tag_val)
         if tag_val_cstr == nil {
             log.errorf("Failed to convert db_tag '%s' to cstring for field '%s'", tag_val, tag_val)
             return .Allocation_Error 
         }
         col_idx := pq.f_number(result, tag_val_cstr)
-        delete(tag_val_cstr) // Clean up the temporary cstring
+        delete(tag_val_cstr)
         if col_idx < 0 {
-            // Column specified in tag not found in result set.
             return .Column_Not_Found 
         }
         is_null   := pq.get_is_null(result, row_idx, col_idx)
@@ -343,7 +318,7 @@ id_from_result :: proc(result: pq.Result) -> (id: i64, err: Err) {
     }
     if pq.n_tuples(result) != 1 || pq.n_fields(result) != 1 {
         log.error("Unexpected number of rows/fields from RETURNING id")
-        return -1, .Query_Failed // Or more specific error
+        return -1, .Query_Failed
     }
     id_val_ptr := pq.get_value(result, 0, 0)
     id_val_len := pq.get_length(result, 0, 0)

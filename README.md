@@ -1,9 +1,10 @@
 
-<h1 align="center">opq - Odins PostgreSQL</h1>
+<img src="opq.jpg" alt="opq" width="960">
 
-<p align="center">convenience wrapper around libpq bindings to make working with psql a bliss</p>
+<h1 align="center">opq - Odin's PostgreSQL</h1>
 
-# Examples
+<p align="center">opq is a convenience wrapper around libpq to make working with psql a bliss</p>
+
 
 - [todo app](./examples/todo.odin)
 
