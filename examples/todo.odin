@@ -24,6 +24,24 @@ Todo :: struct {
     updated_at:  time.Time `json:"updated_at" db:"updated_at"`,
 }
 
+create_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (id: i64, err: opq.Err) {
+    query :: `
+    INSERT INTO todos (title, description) 
+    VALUES ($1, $2)
+    RETURNING id;
+    `
+    desc: any = nil
+    if todo.description != nil {
+        desc = todo.description^
+    }
+    result: pq.Result
+    result, err = opq.exec(conn, query, todo.title, desc)
+    if err != .None {
+        return -1, err
+    }
+    return opq.id_from_result(result)
+}
+
 get_todo :: proc(conn: pq.Conn, id: i64, todo_dest: ^Todo) -> opq.Err {
     query :: `
     SELECT id, title, description, completed, created_at, updated_at 
@@ -33,22 +51,26 @@ get_todo :: proc(conn: pq.Conn, id: i64, todo_dest: ^Todo) -> opq.Err {
     return opq.query_row(conn, todo_dest, query, id)
 }
 
-
-create_todo :: proc(conn: pq.Conn, todo_data: ^Todo) -> (id: i64, err: opq.Err) {
+update_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (err: opq.Err) {
     query :: `
-    INSERT INTO todos (title, description) 
-    VALUES ($1, $2)
-    RETURNING id;
+    UPDATE todos 
+    SET title = $1, description = $2, completed = $3 
+    WHERE id = $4;
     `
-    desc_param: any = nil
-    if todo_data.description != nil {
-        desc_param = todo_data.description^
+    result: pq.Result
+    result, err = opq.exec(conn, query, todo.title, todo.description, todo.completed, todo.id)
+    if err != .None {
+        return err
     }
-    result, exec_err := opq.exec(conn, query, todo_data.title, desc_param)
-    if exec_err != .None {
-        return -1, exec_err
-    }
-    return opq.id_from_result(result)
+    return opq.ok_from_result(conn, result)
+}
+
+delete_todo :: proc(conn: pq.Conn, id: i64) -> (err: opq.Err) {
+    query :: `
+    DELETE FROM todos 
+    WHERE id = $1;
+    `
+    return opq.del(conn, query, id)
 }
 
 main :: proc() {
@@ -74,25 +96,26 @@ main :: proc() {
         updated_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     );
     `
-    create_err := opq.new_migration(conn, migration)
+    create_err := opq.create_migration(conn, migration)
     if create_err != .None {
         log.errorf("Failed to ensure tables are created: %v", create_err)
         return
     }
+    log.info("migration successful")
 
-    new_todo_data: Todo
-    new_todo_data.title = "Todo"
+    new_todo: Todo
+    new_todo.title = "Todo"
     desc_content := "Description from todo."
-    new_todo_data.description = new(string)
-    new_todo_data.description^ = strings.clone(desc_content)
-    new_id, create_todo_err := create_todo(conn, &new_todo_data)
+    new_todo.description = new(string)
+    new_todo.description^ = strings.clone(desc_content)
+    new_id, new_todo_err := create_todo(conn, &new_todo)
     
-    if new_todo_data.description != nil {
-        delete(new_todo_data.description^)
-        free(new_todo_data.description)
+    if new_todo.description != nil {
+        delete(new_todo.description^)
+        free(new_todo.description)
     }
-    if create_todo_err != .None {
-        log.errorf("Failed to create todo: %v", create_todo_err)
+    if new_todo_err != .None {
+        log.errorf("Failed to create todo: %v", new_todo_err)
         return
     }
     log.infof("Created new todo with ID: %d", new_id)
@@ -113,12 +136,40 @@ main :: proc() {
             log.info("  Description: NULL")
         }
         log.infof("  Completed: %v", fetched_todo.completed)
-        // log.infof("  Created At: %s", time.format_iso8601(fetched_todo.created_at)) // Example formatting
-        delete(fetched_todo.title)
+        created_at, ok := time.time_to_rfc3339(fetched_todo.created_at)
+        if !ok {
+            log.errorf("Failed to format created_at: %v", ok)
+            return
+        }
+        defer delete(created_at)
+        log.infof("  Created At: %s", created_at)
         if fetched_todo.description != nil {
-            delete(fetched_todo.description^)
             free(fetched_todo.description)
         }
+    }
+
+    up_todo: Todo
+    up_todo.id = new_id
+    up_todo.title = "Updated Todo"
+    up_todo.description = new(string)
+    up_todo.description^ = strings.clone("Updated description")
+    up_todo.completed = true
+    update_err := update_todo(conn, &up_todo)
+    if up_todo.description != nil {
+        delete(up_todo.description^)
+        free(up_todo.description)
+    }
+    if update_err != .None {
+        log.errorf("Failed to update todo: %v", update_err)
+        return
+    }
+    log.infof("Updated todo with ID: %d", new_id)
+
+    delete_todo_err := delete_todo(conn, new_id)
+    if delete_todo_err != .None {
+        log.errorf("Failed to delete todo with ID %d: Error %v", new_id, delete_todo_err)
+    } else {
+        log.infof("Deleted todo with ID: %d", new_id)
     }
     log.info("Example finished.")
 }

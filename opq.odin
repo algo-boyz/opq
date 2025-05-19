@@ -13,14 +13,15 @@ Err :: enum i32 {
     None = 0,
     Connection_Failed = 1,
     Migration_Failed = 2,
-    Bad_Parameter = 3,
-    Query_Failed = 4,
-    Parsing_Failed = 5,
-    Not_Found = 6,
-    Is_Nil = 7, 
-    Allocation_Error = 8,
-    Time_Format_Error = 9,
-    Column_Not_Found = 10,
+    Result_Error = 3,
+    Bad_Parameter = 4,
+    Query_Failed = 5,
+    Parsing_Failed = 6,
+    Not_Found = 7,
+    Is_Nil = 8,
+    Allocation_Error = 9,
+    Time_Format_Error = 10,
+    Column_Not_Found = 11,
 }
 
 to_string :: proc(c_str: cstring) -> string {
@@ -80,6 +81,7 @@ to_pq_param :: proc(val: any) -> (p_val: cstring, p_len: i32, p_fmt: pq.Format, 
             return nil, 0, .Text, .None // SQL NULL
         }
         v_str := v_ptr_str^
+        fmt.println(v_str)
         c_str := strings.clone_to_cstring(v_str)
         if c_str == nil {
             log.errorf("to_pq_param: strings.clone_to_cstring failed for ^string content")
@@ -96,20 +98,14 @@ to_pq_param :: proc(val: any) -> (p_val: cstring, p_len: i32, p_fmt: pq.Format, 
         }
         return p_val, i32(length), .Text, .None
     case bool:
-        s_val_str := "false"
-        if val.(bool) { s_val_str = "true" }
-        temp_odin_s := s_val_str
-        if !val.(bool) { temp_odin_s = "false"} else {temp_odin_s = "true"}
-        c_str := strings.clone_to_cstring(temp_odin_s)
-        actual_odin_str: string
-        if val.(bool) { actual_odin_str = "true" } else { actual_odin_str = "false" }
-        c_str = strings.clone_to_cstring(actual_odin_str)
-        
+        s_val_str := "f"
+        if val.(bool) { s_val_str = "t" }
+        c_str := strings.clone_to_cstring(s_val_str)
         if c_str == nil { 
             log.errorf("to_pq_param: strings.clone_to_cstring failed for bool")
             return nil, 0, .Text, .Allocation_Error 
         }
-        return c_str, i32(len(actual_odin_str)), .Text, .None
+        return c_str, 1, .Text, .None
     // case time.Time: // TODO
         // t := v_typed.(time.Time)
         // s_val := time.format_rfc3339(t)
@@ -146,27 +142,22 @@ connect :: proc(host, port, user, pass, db_name, ssl_mode: string) -> (conn: pq.
 }
 
 // new_migration sets up the necessary database table if it doesn't exist.
-new_migration :: proc(conn: pq.Conn, query: cstring) -> (err: Err) {
+create_migration :: proc(conn: pq.Conn, query: cstring) -> (err: Err) {
     result, create_err := exec(conn, query)
     if create_err != .None {
         log.errorf("Failed to execute migration query: %v", create_err)
         return .Migration_Failed
     }
-    if result == nil {
-        err_msg := to_string(pq.error_message(conn))
-        log.error(err_msg)
-        delete(err_msg)
-        return .Migration_Failed
+    return ok_from_result(conn, result)
+}
+// delete removes a row from the database.
+del :: proc(conn: pq.Conn, query: cstring, arg: any) -> (err: Err) {
+    result: pq.Result
+    result, err = exec(conn, query, arg)
+    if err != .None {
+        return err
     }
-    defer pq.clear(result)
-
-    status := pq.result_status(result)
-    if status != .Command_OK && status != .Tuples_OK {
-        log.error(pq.result_error_message(result))
-        return .Migration_Failed
-    }
-    log.info("migration successful")
-    return .None
+    return ok_from_result(conn, result)
 }
 
 // exec is an Odin-friendly wrapper for exec_params.
@@ -222,9 +213,11 @@ exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (result: pq.Result, 
         // This case might occur if exec_params itself fails before creating a result object,
         // e.g. due to bad parameters passed to the C function or out of mem within lib
         err_msg := to_string(pq.error_message(conn))
-        log.error(err_msg)
-        delete(err_msg)
-        return nil, .Query_Failed
+        if len(err_msg) > 0 {
+            log.error("result nil: ", err_msg)
+            delete(err_msg)
+            return nil, .Query_Failed
+        }
     }
     return result, .None
 }
@@ -287,7 +280,7 @@ query_row :: proc(conn: pq.Conn, dest: ^$T, query: cstring, args: ..any) -> Err 
         val := pq_cstr_with_len(val_ptr, val_len)
         fmt.printfln("Field %s: %s", s.names[i], val)
         fields := reflect.struct_field_types(T)
-        f := reflect.struct_field_value_by_name(dest, s.names[i])
+        f := reflect.struct_field_value_by_name(dest^, s.names[i])
         switch fields[i].id {
         case i64:
             new_i64, ok := strconv.parse_i64(val)
@@ -298,6 +291,26 @@ query_row :: proc(conn: pq.Conn, dest: ^$T, query: cstring, args: ..any) -> Err 
             (^i64)(f.data)^ = new_i64
         case string:
             (^string)(f.data)^ = val
+        case ^string:
+            ptr := (^(^string))(f.data)^
+            // new_val_for_target_of_b := val
+            // ptr^ = new_val_for_target_of_b
+        case bool:
+            if val == "t" {
+                (^bool)(f.data)^ = true
+            } else if val == "f" {
+                (^bool)(f.data)^ = false
+            } else {
+                log.errorf("Failed to parse bool from string: '%s'", val)
+                return .Parsing_Failed
+            }
+        case time.Time:
+            t, consumed := time.rfc3339_to_time_utc(val)
+            if consumed >= len(val) {
+                log.errorf("Failed to parse time from string: '%s'", val)
+                return .Time_Format_Error
+            }
+            (^time.Time)(f.data)^ = t
         case:
             log.errorf("Unsupported type for field %s: %v", s.names[i], s.types[i])
         }
@@ -334,4 +347,21 @@ id_from_result :: proc(result: pq.Result) -> (id: i64, err: Err) {
         return -1, .Parsing_Failed
     }
     return new_id, .None
+}
+
+ok_from_result :: proc(conn: pq.Conn, result: pq.Result) -> (err: Err) {
+    if result == nil {
+        err_msg := to_string(pq.error_message(conn))
+        log.error(err_msg)
+        delete(err_msg)
+        return .Connection_Failed
+    }
+    defer pq.clear(result)
+
+    status := pq.result_status(result)
+    if status != .Command_OK && status != .Tuples_OK {
+        log.error(pq.result_error_message(result))
+        return .Result_Error
+    }
+    return .None
 }
