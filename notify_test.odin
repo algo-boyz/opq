@@ -16,11 +16,11 @@ test_single_notification :: proc(t: ^testing.T) {
 
     conn := pq.connectdb(conn_str_c)
     if conn == nil || pq.status(conn) == .Bad {
-        err_msg_c := pq.error_message(conn)
-        err_msg_odin := ""
-        if err_msg_c != nil { err_msg_odin = to_string(err_msg_c) }
-        log.errorf("Failed to connect to database: %s", err_msg_odin)
-        if err_msg_odin != "" { delete(err_msg_odin) }
+        cerr:= pq.error_message(conn)
+        err_msg := ""
+        if cerr != nil { err_msg = to_string(cerr) }
+        log.errorf("Failed to connect to database: %s", err_msg)
+        if err_msg != "" { delete(err_msg) }
         if conn != nil { pq.finish(conn) }
         testing.fail(t)
         return

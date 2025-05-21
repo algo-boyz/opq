@@ -59,23 +59,23 @@ connect :: proc(host, port, user, pass, db_name, ssl_mode: string) -> (conn: pq.
     }
     defer delete(conn_cstr)
 
-    conn_obj := pq.connectdb(conn_cstr)
-    if conn_obj == nil {
+    conn = pq.connectdb(conn_cstr)
+    if conn == nil {
         log.error("opq.connect: Connection failed. pq.connectdb returned nil.")
         return nil, .Connection_Failed
     }
-    if pq.status(conn_obj) == .Bad {
-        err_cstr := pq.error_message(conn_obj)
+    if pq.status(conn) == .Bad {
+        cerr := pq.error_message(conn)
         err_msg := ""
-        if err_cstr != nil {
-             err_msg = strings.clone_from_cstring(err_cstr)
+        if cerr != nil {
+             err_msg = strings.clone_from_cstring(cerr)
         }
-        log.errorf("opq.connect: Connection failed. PQ Status: %v. Message: %s", pq.status(conn_obj), err_msg)
+        log.errorf("opq.connect: Connection failed. PQ Status: %v. Message: %s", pq.status(conn), err_msg)
         if err_msg != "" { delete(err_msg) }
-        pq.finish(conn_obj) // Close bad connection
+        pq.finish(conn) // Close bad connection
         return nil, .Connection_Failed
     }
-    return conn_obj, .None
+    return conn, .None
 }
 
 new_pool :: proc(cfg: ^PoolConfig) -> (^Pool, Err) {

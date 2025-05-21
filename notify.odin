@@ -62,54 +62,41 @@ register_event_handler :: proc(conn: pq.Conn, proc_func: pq.Event_Proc, name: st
     return true, .None
 }
 
-// User's event callback example
-// my_event_callback :: proc "c" (evt_id: pq.Event_ID, evt_info: rawptr, pass_through: rawptr) -> b32 {
-//     conn_from_event: pq.Conn
-//     res_from_event: pq.Result
+/* User's event callback example
+my_event_callback :: proc "c" (evt_id: pq.Event_ID, evt_info: rawptr, pass_through: rawptr) -> b32 {
+    conn_from_event: pq.Conn
+    res_from_event: pq.Result
 
-//     #partial switch evt_id {
-//     case .Register:
-//         evt_data := cast(^pq.Event_Register) evt_info
-//         conn_from_event = evt_data.conn
-//         // fmt.printf("Event: Registered on conn %p. Pass-through: %p\n", conn_from_event, pass_through)
-//         // User might allocate some data and associate it with this conn for this proc
-//         // my_conn_data_ptr := new(My_Conn_Specific_Data)
-//         // Note: 'my_event_callback' (the proc itself) is used as the key for instance data.
-//         // if !pq.set_instance_data(conn_from_event, my_event_callback, my_conn_data_ptr) {
-//             // log.error("Failed to set instance data for conn")
-//             // If returning false from .Register, the registration is cancelled.
-//             // return false
-//         // }
-//     case .Conn_Destroy:
-//         evt_data := cast(^pq.Event_Conn_Destroy) evt_info
-//         conn_from_event = evt_data.conn
-//         // log.infof("Event: Conn %p destroyed. Pass-through: %p\n", conn_from_event, pass_through)
-//         // Retrieve and free associated instance data
-//         my_conn_data_ptr := cast(^My_Conn_Specific_Data) pq.instance_data(conn_from_event, my_event_callback)
-//         if my_conn_data_ptr != nil {
-//             // ... free resources within my_conn_data_ptr ...
-//             // free(my_conn_data_ptr)
-//             pq.set_instance_data(conn_from_event, my_event_callback, nil) // Clear it
-//         }
-//     case .Result_Create:
-//         evt_data := cast(^pq.Event_Result_Create) evt_info
-//         res_from_event = evt_data.result
-//         // Associate data with this specific result for this event proc
-//         // my_result_data_ptr := new(My_Result_Specific_Data)
-//         // pq.result_set_instance_data(res_from_event, my_event_callback, my_result_data_ptr)
-//     case .Result_Destroy:
-//         evt_data := cast(^pq.Event_Result_Destroy) evt_info
-//         res_from_event = evt_data.result
-//         // Retrieve and free associated result instance data
-//         // my_result_data_ptr := pq.result_instance_data(res_from_event, my_event_callback)
-//         // free(my_result_data_ptr)
-//         // pq.result_set_instance_data(res_from_event, my_event_callback, nil)
-//     }
-//     return true // Return true to indicate success
-// }
-
-// My_Conn_Specific_Data :: struct { count: int, name: string }
-// My_Result_Specific_Data :: struct { processed_rows: int }
+    #partial switch evt_id {
+    case .Conn_Destroy:
+        evt_data := cast(^pq.Event_Conn_Destroy) evt_info
+        conn_from_event = evt_data.conn
+        // Retrieve and free associated instance data
+        my_conn_data_ptr := cast(^My_Conn_Specific_Data) pq.instance_data(conn_from_event, my_event_callback)
+        if my_conn_data_ptr != nil {
+            // ... free resources within my_conn_data_ptr ...
+            // free(my_conn_data_ptr)
+            pq.set_instance_data(conn_from_event, my_event_callback, nil) // Clear it
+        }
+    case .Result_Create:
+        evt_data := cast(^pq.Event_Result_Create) evt_info
+        res_from_event = evt_data.result
+        // Associate data with this specific result for this event proc
+        // my_result_data_ptr := new(My_Result_Specific_Data)
+        // pq.result_set_instance_data(res_from_event, my_event_callback, my_result_data_ptr)
+    case .Result_Destroy:
+        evt_data := cast(^pq.Event_Result_Destroy) evt_info
+        res_from_event = evt_data.result
+        // Retrieve and free associated result instance data
+        // my_result_data_ptr := pq.result_instance_data(res_from_event, my_event_callback)
+        // free(my_result_data_ptr)
+        // pq.result_set_instance_data(res_from_event, my_event_callback, nil)
+    }
+    return true
+}
+My_Conn_Specific_Data :: struct { count: int, name: string }
+My_Result_Specific_Data :: struct { processed_rows: int }
+*/
 
 Notification :: struct {
     channel: string,
