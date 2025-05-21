@@ -4,6 +4,7 @@
 <p align="center">opq is a convenience wrapper around libpq to make working with psql a bliss</p>
 
 Example use:
+
 ```odin
 Todo :: struct {
     id:          i64     `json:"id" db:"id"`,
@@ -46,6 +47,7 @@ create_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (id: i64, err: opq.Err) {
     if err != .None {
         return -1, err
     }
+    defer pq.clear(result)
     return opq.id_from_result(result)
 }
 
@@ -74,7 +76,7 @@ update_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (err: opq.Err) {
     if err != .None {
         return err
     }
-    defer pq.clear(result) // Ensure result is cleared.
+    defer pq.clear(result)
     return opq.ok_from_result(conn, result)
 }
 
@@ -85,6 +87,5 @@ delete_todo :: proc(conn: pq.Conn, id: i64) -> (err: opq.Err) {
     return opq.del(conn, query, id)
 }
 ```
-- [todo app](./examples/todo.odin)
 
 <p align="center">𒉭 𐱅𐰇𐰼𐰰 𖣐</p>

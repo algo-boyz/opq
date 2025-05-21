@@ -49,6 +49,7 @@ create_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (id: i64, err: opq.Err) {
     if err != .None {
         return -1, err
     }
+    defer pq.clear(result)
     return opq.id_from_result(result)
 }
 
