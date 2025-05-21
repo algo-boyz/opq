@@ -1,10 +1,9 @@
 
-<img src="opq.jpg" alt="opq" width="960">
+<img src="opq.png" alt="opq" width="960">
 
 <p align="center">opq is a convenience wrapper around libpq to make working with psql a bliss</p>
 
 Example use:
-
 ```odin
 Todo :: struct {
     id:          i64     `json:"id" db:"id"`,
