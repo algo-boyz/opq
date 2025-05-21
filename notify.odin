@@ -124,6 +124,36 @@ delete_notification :: proc(n: ^Notification) {
     delete(n.payload)
 }
 
+// notify_channel sends a notification to the specified channel with an optional payload.
+notify_channel :: proc(conn: pq.Conn, channel: string, payload: string) -> Err {
+    query: string
+    if payload != "" {
+        escaped_payload, ok := strings.replace_all(payload, "'", "''") // Basic escaping for SQL strings
+        if !ok {
+            log.error("notify_channel: Failed to escape payload.")
+            return Err.Allocation_Error
+        }
+        defer delete(escaped_payload)
+        query = fmt.tprintf("NOTIFY %s, '%s'", channel, escaped_payload)
+
+    } else {
+        query = fmt.tprintf("NOTIFY %s", channel)
+    }
+    query_c := strings.clone_to_cstring(query)
+    if query_c == nil {
+        log.error("notify_channel: Failed to allocate C string for query.")
+        return Err.Allocation_Error
+    }
+    defer delete(query_c)
+    res, err_code := exec(conn, query_c) 
+    if err_code != Err.None {
+        log.errorf("notify_channel: exec failed: %v", err_code)
+        return err_code
+    }
+    defer pq.clear(res)
+    return ok_from_result(conn, res)
+}
+
 // consume_notifications checks for and processes any pending notifications.
 // It returns a dynamic array of opq.Notification and an error code.
 // The caller is responsible for deleting the returned slice and its elements.
@@ -152,7 +182,7 @@ consume_notifications :: proc(conn: pq.Conn) -> (notifications: [dynamic]Notific
         // IMPORTANT: pq.notifies() returns a pointer to an internally managed linked list.
         // The memory for the pq.Notify struct itself is managed by libpq and freed
         // when the parent pq.Conn is closed or on the next call to pq.notifies() that
-        // rebuilds the list. We've cloned the strings, so those are callers responsibility.
+        // rebuilds the list. We've cloned the strings, so those are the caller's responsibility.
     }
     if len(notifs_list) > 0 {
         return notifs_list, .None
@@ -160,19 +190,20 @@ consume_notifications :: proc(conn: pq.Conn) -> (notifications: [dynamic]Notific
     return nil, .None
 }
 
-// Example usage:
-// main :: proc() {
-//     opq.listen(conn, "my_chan")
-//     for !should_quit {
-//         notifications, err := opq.consume_notifications(conn)
-//         if err == .None && notifications != nil {
-//             for notif in notifications {
-//                 fmt.printf("Received notification on channel '%s': %s (PID: %d)\n", notif.channel, notif.payload, notif.be_pid)
-//                 opq.delete_notification(&notif)
-//             }
-//             delete(notifications)
-//         } else if err != .None {
-//             log.errorf("Error consuming notifications: %v", err)
-//         }
-//     }
-// }
+/* Example usage:
+main :: proc() {
+    opq.listen(conn, "my_chan")
+    for !should_quit {
+        notifications, err := opq.consume_notifications(conn)
+        if err == .None && notifications != nil {
+            for notif in notifications {
+                fmt.printf("Received notification on channel '%s': %s (PID: %d)\n", notif.channel, notif.payload, notif.be_pid)
+                opq.delete_notification(&notif)
+            }
+            delete(notifications)
+        } else if err != .None {
+            log.errorf("Error consuming notifications: %v", err)
+         }
+     }
+}
+*/
