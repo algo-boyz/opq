@@ -4,9 +4,9 @@ import "core:fmt"
 import "core:log"
 import "core:strings"
 import "core:time"
-import "memtrack"
-import pq "../pq"
-import "../"
+import "../.."
+import pq "../../pq"
+import "../memtrack"
 
 Todo :: struct {
     id:          i64     `json:"id" db:"id"`,
@@ -17,12 +17,29 @@ Todo :: struct {
     updated_at:  time.Time `json:"updated_at" db:"updated_at"`,
 }
 
+migrate :: proc(conn: pq.Conn) -> (err: opq.Err) {
+    migration :: `
+    CREATE TABLE IF NOT EXISTS todos (
+        id          BIGSERIAL PRIMARY KEY,
+        title       TEXT NOT NULL,
+        description TEXT,
+        completed   BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    );`
+    if err = opq.create_migration(conn, migration); err != .None {
+        log.errorf("Failed to ensure tables are created: %v", err)
+        return err
+    }
+    log.info("migration successful")
+    return .None
+}
+
 create_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (id: i64, err: opq.Err) {
     query :: `
     INSERT INTO todos (title, description) 
     VALUES ($1, $2)
-    RETURNING id;
-    `
+    RETURNING id;`
     desc: any = nil
     if todo.description != nil {
         desc = todo.description^
@@ -39,16 +56,14 @@ get_todo :: proc(conn: pq.Conn, id: i64, dest: ^Todo) -> opq.Err {
     query :: `
     SELECT id, title, description, completed, created_at, updated_at 
     FROM todos 
-    WHERE id = $1;
-    `
+    WHERE id = $1;`
     return opq.query_row(conn, dest, query, id)
 }
 
 get_todos :: proc(conn: pq.Conn, dest: ^[dynamic]Todo) -> opq.Err {
     query :: `
     SELECT id, title, description, completed, created_at, updated_at 
-    FROM todos
-    `
+    FROM todos`
     return opq.query_rows(conn, dest, query)
 }
 
@@ -56,8 +71,7 @@ update_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (err: opq.Err) {
     query :: `
     UPDATE todos 
     SET title = $1, description = $2, completed = $3 
-    WHERE id = $4;
-    `
+    WHERE id = $4;`
     result: pq.Result
     result, err = opq.exec(conn, query, todo.title, todo.description, todo.completed, todo.id)
     if err != .None {
@@ -70,7 +84,6 @@ update_todo :: proc(conn: pq.Conn, todo: ^Todo) -> (err: opq.Err) {
 delete_todo :: proc(conn: pq.Conn, id: i64) -> (err: opq.Err) {
     query :: `
     DELETE FROM todos 
-    WHERE id = $1;
-    `
+    WHERE id = $1;`
     return opq.del(conn, query, id)
 }

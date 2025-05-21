@@ -11,7 +11,7 @@ TARGET := todo_app
 # Source files or main package directory
 # If your main.odin is in the current directory, "." is fine.
 # If you have multiple .odin files or a specific package structure, adjust accordingly.
-SRC := ./examples
+SRC := ./examples/todo
 
 # Odin build flags (e.g., -debug, -o:speed, -o:size, etc.)
 # Add -file if your main entry point is a single file and not a directory package.
@@ -46,6 +46,11 @@ build:
 run: build
 	@echo "Running $(TARGET)..."
 	./$(TARGET)
+
+test:
+	@echo "Testing $(TARGET)..."
+    $(ODIN) test $(TARGET) -extra-linker-flags:"$(EXTRA_LINKER_FLAGS)"
+	@echo "$(TARGET) test done."
 
 # Clean up build artifacts
 clean:

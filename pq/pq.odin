@@ -4,6 +4,8 @@ import "core:c"
 
 when ODIN_OS == .Windows {
 	LIB :: #config(POSTGRES_LIB, "system:libpq.lib")
+} else when ODIN_OS == .Darwin {
+	LIB :: #config(POSTGRES_LIB, "system:/opt/homebrew/opt/libpq/lib/libpq.dylib")
 } else {
 	LIB :: #config(POSTGRES_LIB, "system:pq")
 }

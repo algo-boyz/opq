@@ -11,27 +11,27 @@ import "pq"
 
 Err :: enum i32 {
 	None = 0,
-	Connection_Failed = 1,
-	Migration_Failed = 2,
-	Result_Error = 3,
-	Bad_Parameter = 4,
+    Pool_Closed = 1,
+    Acquire_Timeout = 2,
+    Connection_Failed = 3,
+	Migration_Failed = 4,
 	Query_Failed = 5,
-	Parsing_Failed = 6,
-	Not_Found = 7,
-	Is_Nil = 8, // Value is unexpectedly NULL in DB for a non-pointer field
-	Allocation_Error = 9,
-	Time_Format_Error = 10,
-	Column_Not_Found = 11,
-	Unsupported_Type = 12,
-    Precondition_Not_Met = 13,
+	Result_Error = 6,
+	Bad_Parameter = 7,
+	Parsing_Failed = 8,
+	Not_Found = 9,
+	Column_Not_Found = 10,
+	Is_Nil = 11, // Value is unexpectedly NULL in DB for a non-pointer field
+	Allocation_Error = 12,
+	Time_Format_Error = 13,
+	Unsupported_Type = 14,
+    Precondition_Not_Met = 15,
 }
 
 to_string :: proc(c_str: cstring) -> string {
     if c_str == nil {
         return ""
     }
-    // strings.clone_from_cstring allocates a new Odin string.
-    // The caller of to_string is responsible for deleting this returned string.
     s, err := strings.clone_from_cstring(c_str)
     if err != nil {
         log.errorf("Failed to clone_from_cstring: %v", err)
@@ -44,13 +44,12 @@ pq_cstr_with_len :: proc(data_ptr: [^]byte, length: i32) -> string {
 	if data_ptr == nil || length <= 0 {
 		return ""
 	}
-	// This creates a new Odin string, copying the data.
 	return string(data_ptr[:length])
 }
 
 get_tag_val :: proc(tag: string) -> (tag_value: string, has_db_tag: bool) {
     tags := strings.split(tag, " ")
-    defer delete(tags) // Ensure tags slice is deleted after use
+    defer delete(tags)
     for tag in tags {
         if strings.has_prefix(tag, "db:") {
             // Remove "db:" prefix and trailing quote
@@ -62,7 +61,7 @@ get_tag_val :: proc(tag: string) -> (tag_value: string, has_db_tag: bool) {
 
 // to_pq_param_single converts a value to pq parameter parts.
 to_pq_param :: proc(val: any) -> (p_val: cstring, p_len: i32, p_fmt: pq.Format, err_code: Err) {
-    if val == nil { // Handles untyped nil passed directly for SQL NULL
+    if val == nil {
         return nil, 0, .Text, .None
     }
     raw_type_info := type_info_of(val.id)
@@ -78,11 +77,11 @@ to_pq_param :: proc(val: any) -> (p_val: cstring, p_len: i32, p_fmt: pq.Format, 
         }
         return p_val, i32(len(v_str)), .Text, .None
     case ^string:
-        v_ptr_str := v_typ
-        if v_ptr_str == nil {
-            return nil, 0, .Text, .None // SQL NULL
+        v_ptr := v_typ
+        if v_ptr == nil {
+            return nil, 0, .Text, .None
         }
-        v_str := v_ptr_str^
+        v_str := v_ptr^
         c_str := strings.clone_to_cstring(v_str)
         if c_str == nil {
             log.errorf("to_pq_param: strings.clone_to_cstring failed for ^string content")
@@ -90,84 +89,109 @@ to_pq_param :: proc(val: any) -> (p_val: cstring, p_len: i32, p_fmt: pq.Format, 
         }
         return c_str, i32(len(v_str)), .Text, .None
     case f64:
-        odin_s := fmt.tprintf("%f", v_typ)
-        p_val = strings.clone_to_cstring(odin_s)
-        length := len(odin_s)
+        v_str := fmt.tprintf("%f", v_typ)
+        p_val = strings.clone_to_cstring(v_str)
+        length := len(v_str)
         if p_val == nil { 
             log.errorf("to_pq_param: strings.clone_to_cstring failed for f64")
             return nil, 0, .Text, .Allocation_Error 
         }
         return p_val, i32(length), .Text, .None
     case ^f64:
-        v_ptr_f64 := v_typ
-        if v_ptr_f64 == nil {
-            return nil, 0, .Text, .None // SQL NULL
+        v_ptr := v_typ
+        if v_ptr == nil {
+            return nil, 0, .Text, .None
         }
-        v_f64 := v_ptr_f64^
-        odin_s := fmt.tprintf("%f", v_typ)
-        length := len(odin_s)
-        c_str := strings.clone_to_cstring(odin_s)
+        v_f64 := v_ptr^
+        v_str := fmt.tprintf("%f", v_typ)
+        length := len(v_str)
+        c_str := strings.clone_to_cstring(v_str)
         if c_str == nil {
             log.errorf("to_pq_param: strings.clone_to_cstring failed for ^f64 content")
             return nil, 0, .Text, .Allocation_Error
         }
         return c_str, i32(length), .Text, .None
     case i64:
-        odin_s := fmt.tprintf("%d", v_typ)
-        p_val = strings.clone_to_cstring(odin_s)
-        length := len(odin_s)
+        v_str := fmt.tprintf("%d", v_typ)
+        p_val = strings.clone_to_cstring(v_str)
+        length := len(v_str)
         if p_val == nil { 
             log.errorf("to_pq_param: strings.clone_to_cstring failed for i64")
             return nil, 0, .Text, .Allocation_Error 
         }
         return p_val, i32(length), .Text, .None
     case ^i64:
-        v_ptr_i64 := v_typ
-        if v_ptr_i64 == nil {
-            return nil, 0, .Text, .None // SQL NULL
+        v_ptr := v_typ
+        if v_ptr == nil {
+            return nil, 0, .Text, .None
         }
-        v_i64 := v_ptr_i64^
-        odin_s := fmt.tprintf("%d", v_typ)
-        length := len(odin_s)
-        c_str := strings.clone_to_cstring(odin_s)
+        v_i64 := v_ptr^
+        v_str := fmt.tprintf("%d", v_typ)
+        length := len(v_str)
+        c_str := strings.clone_to_cstring(v_str)
         if c_str == nil {
             log.errorf("to_pq_param: strings.clone_to_cstring failed for ^i64 content")
             return nil, 0, .Text, .Allocation_Error
         }
         return c_str, i32(length), .Text, .None
     case bool:
-        s_val_str := "f"
-        if val.(bool) { s_val_str = "t" }
-        c_str := strings.clone_to_cstring(s_val_str)
+        val_str := "f"
+        if val.(bool) { val_str = "t" }
+        c_str := strings.clone_to_cstring(val_str)
         if c_str == nil { 
             log.errorf("to_pq_param: strings.clone_to_cstring failed for bool")
             return nil, 0, .Text, .Allocation_Error 
         }
         return c_str, 1, .Text, .None
     case ^bool:
-        v_ptr_bool := v_typ
-        if v_ptr_bool == nil {
-            return nil, 0, .Text, .None // SQL NULL
+        v_ptr := v_typ
+        if v_ptr == nil {
+            return nil, 0, .Text, .None
         }
-        v_bool := v_ptr_bool^
-        s_val_str := "f"
-        if v_bool { s_val_str = "t" }
-        c_str := strings.clone_to_cstring(s_val_str)
+        v_bool := v_ptr^
+        val_str := "f"
+        if v_bool { val_str = "t" }
+        c_str := strings.clone_to_cstring(val_str)
         if c_str == nil { 
             log.errorf("to_pq_param: strings.clone_to_cstring failed for ^bool content")
             return nil, 0, .Text, .Allocation_Error 
         }
         return c_str, 1, .Text, .None
+    case []byte:
+        v_bytes := v_typ
+        if v_bytes == nil {
+            return nil, 0, .Text, .None
+        }
+        length := len(v_bytes)
+        c_str := strings.clone_to_cstring(string(v_bytes))
+        if c_str == nil {
+            log.errorf("to_pq_param: strings.clone_to_cstring failed for []byte")
+            return nil, 0, .Text, .Allocation_Error 
+        }
+        return c_str, i32(length), .Text, .None
+    case ^[]byte:
+        v_ptr := v_typ
+        if v_ptr == nil {
+            return nil, 0, .Text, .None
+        }
+        v_bytes := v_ptr^
+        length := len(v_bytes)
+        c_str := strings.clone_to_cstring(string(v_bytes))
+        if c_str == nil {
+            log.errorf("to_pq_param: strings.clone_to_cstring failed for ^[]byte content")
+            return nil, 0, .Text, .Allocation_Error 
+        }
+        return c_str, i32(length), .Text, .None
     case time.Time:
         t := a.(time.Time)
-        s_val, ok := time.time_to_rfc3339(t)
+        val, ok := time.time_to_rfc3339(t)
         if !ok {
             log.errorf("to_pq_param: Failed to convert time.Time to string")
             return nil, 0, .Text, .Allocation_Error
         }
-        c_str := strings.clone_to_cstring(s_val)
-        length := len(s_val)
-        delete(s_val)
+        c_str := strings.clone_to_cstring(val)
+        length := len(val)
+        delete(val)
         if c_str == nil { 
             log.errorf("to_pq_param: strings.clone_to_cstring failed for time")
             return nil, 0, .Text, .Allocation_Error 
@@ -179,68 +203,88 @@ to_pq_param :: proc(val: any) -> (p_val: cstring, p_len: i32, p_fmt: pq.Format, 
     return nil, 0, .Text, .Unsupported_Type
 }
 
-// connect establishes a new database connection.
-// Returns the connection or nil and an error code if connection fails.
-connect :: proc(host, port, user, pass, db_name, ssl_mode: string) -> (conn: pq.Conn, err: Err) {
-	conn_str_parts := []string{
-		"host=", host, " port=", port, " user=", user,
-		" password=", pass, " dbname=", db_name, " sslmode=", ssl_mode,
-	}
-	joined_conn_str := strings.join(conn_str_parts, "")
-	defer delete(joined_conn_str)
-	conn_str_c := strings.clone_to_cstring(joined_conn_str)
-	if conn_str_c == nil {
-		log.error("opq.connect: Failed to allocate C string for connection.")
-		return nil, .Allocation_Error
-	}
-	defer delete(conn_str_c)
+begin_tx :: proc(conn: pq.Conn) -> Err {
+    res, err := exec(conn, "BEGIN")
+    if err != .None {
+        log.errorf("opq.begin: Failed to begin transaction: %v", err)
+        return err
+    }
+    defer pq.clear(res) // Ensure res is cleared.
+    return ok_from_result(conn, res)
+}
 
-	conn_obj := pq.connectdb(conn_str_c)
-	if conn_obj == nil || pq.status(conn_obj) == .Bad {
-		err_msg_pq := ""
-		if conn_obj != nil {
-			err_msg_odin := to_string(pq.error_message(conn_obj))
-			err_msg_pq = err_msg_odin
-			log.errorf("opq.connect: Connection failed. PQ Status: %v. Message: %s", pq.status(conn_obj), err_msg_odin)
-			delete(err_msg_odin)
-			pq.finish(conn_obj)
-		} else {
-			log.error("opq.connect: Connection failed. pq.connectdb returned nil and no error message retrieval possible.")
-		}
-		return nil, .Connection_Failed
-	}
-	return conn_obj, .None
+commit_tx :: proc(conn: pq.Conn) -> Err {
+    res, err := exec(conn, "COMMIT")
+    if err != .None {
+        log.errorf("opq.commit: Failed to commit transaction: %v", err)
+        return err
+    }
+    defer pq.clear(res) // Ensure res is cleared.
+    return ok_from_result(conn, res)
+}
+
+rollback_tx :: proc(conn: pq.Conn) -> Err {
+    res, err := exec(conn, "ROLLBACK")
+    if err != .None {
+        log.errorf("opq.rollback: Failed to rollback transaction: %v", err)
+        return err
+    }
+    defer pq.clear(res) // Ensure res is cleared.
+    return ok_from_result(conn, res)
+}
+
+// with_tx wraps a transaction around the provided body proc
+with_tx :: proc(conn: pq.Conn, body: proc(tx_conn: pq.Conn) -> Err) -> (err: Err) {
+    if err = begin_tx(conn); err != .None {
+        return err
+    }
+    // Pass the same connection, as it's now in a transaction state
+    if err = body(conn); err != .None {
+        // Attempt to rollback, but prioritize returning the original body error
+        if roll_err := rollback_tx(conn); roll_err != .None {
+            log.errorf("opq.with_transaction: Failed to rollback after error: %v (original error: %v)", roll_err, err)
+        }
+        return err
+    }
+    if err = commit_tx(conn); err != .None {
+        // Attempt to rollback if commit fails
+        if roll_err := rollback_tx(conn); roll_err != .None {
+            log.errorf("opq.with_transaction: Failed to rollback after commit failure: %v (commit error: %v)", roll_err, err)
+        }
+        return err
+    }
+    return .None
 }
 
 // new_migration sets up the necessary database table if it doesn't exist.
 create_migration :: proc(conn: pq.Conn, query: cstring) -> (err: Err) {
-    result, create_err := exec(conn, query)
+    res, create_err := exec(conn, query)
     if create_err != .None {
         log.errorf("Failed to execute migration query: %v", create_err)
         return .Migration_Failed
     }
-    defer pq.clear(result) // Ensure result is cleared.
-    return ok_from_result(conn, result)
+    defer pq.clear(res) // Ensure res is cleared.
+    return ok_from_result(conn, res)
 }
 
 // delete removes a row from the database.
 del :: proc(conn: pq.Conn, query: cstring, arg: any) -> (err: Err) {
-	result, exec_err := exec(conn, query, arg)
+	res, exec_err := exec(conn, query, arg)
 	if exec_err != .None {
 		return exec_err
 	}
-    if result == nil {
-        log.error("opq.del: exec returned nil result without error.")
+    if res == nil {
+        log.error("opq.del: exec returned nil res without error.")
         return .Query_Failed
     }
-	defer pq.clear(result)
-	return ok_from_result(conn, result)
+	defer pq.clear(res)
+	return ok_from_result(conn, res)
 }
 
 // exec is an Odin-friendly wrapper for pq.exec_params
 // It converts variadic Odin arguments to C params and manages their memory.
 // The caller is responsible to clear the returned result.
-exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (result: pq.Result, err: Err) {
+exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (res: pq.Result, err: Err) {
     n_params := len(args)
     if n_params == 0 {
         raw_res := pq.exec(conn, query)
@@ -276,7 +320,7 @@ exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (result: pq.Result, 
         param_lengths_c[i] = length
         param_formats_c[i] = format
     }
-    result = pq.exec_params(
+    res = pq.exec_params(
         conn,
         query,
         i32(n_params),
@@ -286,35 +330,33 @@ exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (result: pq.Result, 
         &param_formats_c[0],
         .Text,               // result_format (can be configurable, .Binary for performance with some types)
     )
-    return result, .None
+    return res, .None
 }
 
 // query_rows executes a query that returns multiple rows and scans them
 // into the `dest` slice. `dest` should be a pointer to a slice of structs.
 // Manages pq.Result clearing.
-query_rows :: proc(conn: pq.Conn, dest_slice_ptr: ^[dynamic]$T, query: cstring, args: ..any) -> Err {
-	result, exec_err := exec(conn, query, ..args)
-	if exec_err != .None {
-		return exec_err
+query_rows :: proc(conn: pq.Conn, dest_slice_ptr: ^[dynamic]$T, query: cstring, args: ..any) -> (err: Err) {
+	res: pq.Result
+    res, err = exec(conn, query, ..args)
+	if err != .None {
+		return err
 	}
-	// exec guarantees a non-nil result if error is .None, but check for safety if that changes.
-	if result == nil {
-		log.error("opq.query_rows: exec returned nil result unexpectedly (exec_err was .None).")
+	if res == nil {
+		log.error("opq.query_rows: exec returned nil res unexpectedly (exec_err was .None).")
 		return .Query_Failed
 	}
-	defer pq.clear(result) // CRITICAL: Ensure pq.Result is always cleared.
-
-	num_tuples := pq.n_tuples(result)
+	defer pq.clear(res)
+    
+    num_tuples := pq.n_tuples(res)
 	if num_tuples == 0 {
 		return .None
 	}
-
 	for row_idx: i32 = 0; row_idx < num_tuples; row_idx += 1 {
 		current_row_item: T 
-		scan_err := scan_row(result, &current_row_item, row_idx)
-		if scan_err != .None {
-			log.errorf("opq.query_rows: Failed to scan data for row #%d. Error: %v. Query: %s", row_idx, scan_err, query)
-			return scan_err
+		if err = scan_row(res, &current_row_item, row_idx); err != .None {
+			log.errorf("opq.query_rows: Failed to scan data for row #%d. Error: %v. Query: %s", row_idx, err, query)
+			return err
 		}
 		append(dest_slice_ptr, current_row_item)
 	}
@@ -324,13 +366,13 @@ query_rows :: proc(conn: pq.Conn, dest_slice_ptr: ^[dynamic]$T, query: cstring, 
 // query_row executes a query expected to return one row (or zero for Not_Found)
 // and scan it into the `dest` struct.
 query_row :: proc(conn: pq.Conn, dest_struct_ptr: ^$T, query: cstring, args: ..any) -> Err {
-	result, exec_err := exec(conn, query, ..args)
-	if exec_err != .None {
-		return exec_err
+	res, err := exec(conn, query, ..args)
+	if err != .None {
+		return err
 	}
-	defer pq.clear(result) // CRITICAL: Ensure pq.Result is always cleared.
-
-	num_tuples := pq.n_tuples(result)
+	defer pq.clear(res)
+    
+	num_tuples := pq.n_tuples(res)
 	if num_tuples == 0 {
 		return .Not_Found
 	}
@@ -339,10 +381,10 @@ query_row :: proc(conn: pq.Conn, dest_struct_ptr: ^$T, query: cstring, args: ..a
 		// Depending on strictness, one might return an error here.
 	}
 	
-	return scan_row(result, dest_struct_ptr, 0) // Scan the first row (index 0)
+	return scan_row(res, dest_struct_ptr, 0) // Scan the first row (index 0)
 }
 
-scan_row :: proc(result: pq.Result, dest: ^$T, row_idx: i32) -> Err {
+scan_row :: proc(res: pq.Result, dest: ^$T, row_idx: i32) -> (err: Err) {
     ti := runtime.type_info_base(type_info_of(T))
 	s, ok := ti.variant.(runtime.Type_Info_Struct)
     if !ok {
@@ -359,22 +401,21 @@ scan_row :: proc(result: pq.Result, dest: ^$T, row_idx: i32) -> Err {
             log.errorf("Failed to convert db_tag '%s' to cstring for field '%s'", tag_val, tag_val)
             return .Allocation_Error 
         }
-        col_idx := pq.f_number(result, tag_val_cstr)
+        col_idx := pq.f_number(res, tag_val_cstr)
         delete(tag_val_cstr)
         if col_idx < 0 {
             return .Column_Not_Found 
         }
-        is_null   := pq.get_is_null(result, row_idx, col_idx)
+        is_null   := pq.get_is_null(res, row_idx, col_idx)
         if is_null {
             return .Is_Nil
         }
-        val_ptr   := pq.get_value(result, row_idx, col_idx) 
-        val_len   := pq.get_length(result, row_idx, col_idx)
+        val_ptr   := pq.get_value(res, row_idx, col_idx) 
+        val_len   := pq.get_length(res, row_idx, col_idx)
         val := pq_cstr_with_len(val_ptr, val_len)
-        scan_err := scan_field(val, dest, s, i)
-        if scan_err != .None {
-            log.errorf("Failed to scan field %s: %v", s.names[i], scan_err)
-            return scan_err
+        if err = scan_field(val, dest, s, i); err != .None {
+            log.errorf("Failed to scan field %s: %v", s.names[i], err)
+            return err
         }
     }
     return .None
@@ -469,6 +510,26 @@ scan_field :: proc(val: string, dest: ^$T, s: runtime.Type_Info_Struct, i:i32) -
             return .Time_Format_Error
         }
         (^time.Time)(f.data)^ = t
+    case []byte:
+        // UUIDs: PostgreSQL has a native UUID type. might want to map this to [16]byte or a string, with appropriate parsing/formatting.
+        // JSON/JSONB: These could be mapped to string or []byte (raw JSON)
+        // pq.get_value returns [^]byte, and pq.get_length gives its length.
+        // will need to clone this data into an Odin []byte.
+        // Note: pq.get_value result is not null-terminated if it's binary.
+        // The 'val' string passed to scan_field might need to be [^]byte and length if dealing with raw binary from pq.
+        // For now, assuming 'val' is a string representation if it's text format.
+        // If pq.get_value was directly used with binary format, we'd copy bytes.
+        // For text format bytea (e.g., \xDEADBEEF), unescaping is needed here.
+        // pq.unescape_bytea would be used if bytea was fetched as text.
+        log.warnf("scan_field: []byte from string representation is tricky; recommend binary format retrieval for bytea.")
+        // or a hex string like "\x..." ???
+        // unescaped_bytes, unescaped_len := pq.unescape_bytea(strings.clone_to_cstring(val), nil)
+        // if unescaped_bytes != nil {
+        //    (^[dynamic]byte)(f.data)^ = unescaped_bytes[:unescaped_len]
+        //    pq.free_mem(unescaped_bytes)
+        // } else { return .Parsing_Failed }
+    case ^[]byte:
+        // TODO
     case:
         log.errorf("Unsupported type for field %s: %v", s.names[i], s.types[i])
         // return .Unsupported_Type
@@ -476,32 +537,29 @@ scan_field :: proc(val: string, dest: ^$T, s: runtime.Type_Info_Struct, i:i32) -
     return .None
 }
 
-// id_from_result extracts the ID from a result object.
-id_from_result :: proc(result: pq.Result) -> (id: i64, err: Err) {
-	if result == nil {
-		log.error("opq.id_from_result: Received nil result.")
+// id_from_result extracts the ID from a res object.
+// proc just focuses on extracting data from an assumed valid result
+id_from_result :: proc(res: pq.Result) -> (id: i64, err: Err) {
+	if res == nil {
+		log.error("opq.id_from_result: Received nil res.")
 		return -1, .Is_Nil
 	}
-	// Do not check pq.result_status here if this func is a helper after a successful exec.
-	// The caller (exec, query_row, etc.) handles result status and clearing.
-	// This function just focuses on extracting data from an assumed valid result.
-
-	if pq.n_tuples(result) != 1 {
-		log.errorf("opq.id_from_result: Expected 1 tuple (row) for ID, got %d.", pq.n_tuples(result))
+	if pq.n_tuples(res) != 1 {
+		log.errorf("opq.id_from_result: Expected 1 tuple (row) for ID, got %d.", pq.n_tuples(res))
 		return -1, .Result_Error
 	}
-	if pq.n_fields(result) != 1 {
-		log.errorf("opq.id_from_result: Expected 1 field (column) for ID, got %d.", pq.n_fields(result))
+	if pq.n_fields(res) != 1 {
+		log.errorf("opq.id_from_result: Expected 1 field (column) for ID, got %d.", pq.n_fields(res))
 		return -1, .Result_Error
 	}
 
-	if pq.get_is_null(result, 0, 0) {
+	if pq.get_is_null(res, 0, 0) {
 		log.error("opq.id_from_result: RETURNING id value is NULL.")
 		return -1, .Is_Nil
 	}
 
-	id_val_ptr := pq.get_value(result, 0, 0)
-	id_val_len := pq.get_length(result, 0, 0)
+	id_val_ptr := pq.get_value(res, 0, 0)
+	id_val_len := pq.get_length(res, 0, 0)
 
 	id_odin_str := pq_cstr_with_len(id_val_ptr, id_val_len)
 
@@ -513,26 +571,26 @@ id_from_result :: proc(result: pq.Result) -> (id: i64, err: Err) {
 	return new_id, .None
 }
 
-// ok_from_result checks if a command result (no tuples expected, or tuples are fine) is okay.
+// ok_from_result checks if a command res (no tuples expected, or tuples are fine) is okay.
 // Does not clear the result; caller is responsible.
-ok_from_result :: proc(conn: pq.Conn, result: pq.Result) -> (err: Err) {
-	if result == nil {
-		// This indicates a problem before even getting a result object,
+ok_from_result :: proc(conn: pq.Conn, res: pq.Result) -> (err: Err) {
+	if res == nil {
+		// This indicates a problem before even getting a res object,
 		// likely a connection issue
-		err_msg_odin := to_string(pq.error_message(conn))
-		log.errorf("opq.ok_from_result: Received nil result. PQ conn error: %s", err_msg_odin)
-		delete(err_msg_odin)
+		err_msg := to_string(pq.error_message(conn))
+		log.errorf("opq.ok_from_result: Received nil res. PQ conn error: %s", err_msg)
+		delete(err_msg)
 		return .Is_Nil
 	}
 
-	status := pq.result_status(result)
+	status := pq.result_status(res)
 	// .Tuples_OK is fine for commands that might return info (e.g. RETURNING)
 	// .Command_OK is for commands that don't return rows (INSERT, UPDATE, DELETE without RETURNING)
 	// .Single_Tuple for specific single row returns, also acceptable if data extraction is separate.
 	if status != .Command_OK && status != .Tuples_OK && status != .Single_Tuple {
-		err_msg_odin := to_string(pq.result_error_message(result)) // Error from result
-		log.errorf("opq.ok_from_result: Command failed. PQ Status: %v. Message: '%s'", status, err_msg_odin)
-		delete(err_msg_odin)
+		err_msg := to_string(pq.result_error_message(res)) // Error from res
+		log.errorf("opq.ok_from_result: Command failed. PQ Status: %v. Message: '%s'", status, err_msg)
+		delete(err_msg)
 		return .Result_Error
 	}
 	return .None
