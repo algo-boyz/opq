@@ -10,7 +10,7 @@ import "core:testing"
 import "pq"
 
 with_pool :: proc(t: ^testing.T, body: proc(t: ^testing.T, p: ^Pool)) {
-	cfg := default_config(5)
+	cfg := default_config()
     p, err := new_pool(&cfg)
     testing.expect(t, err == .None, fmt.tprintf("new_pool failed: %v", err))
     defer close_pool(p) // Ensure pool is closed
@@ -23,7 +23,6 @@ with_pool :: proc(t: ^testing.T, body: proc(t: ^testing.T, p: ^Pool)) {
 
 @(test)
 test_acquire_release :: proc(t: ^testing.T) {
-    cfg := default_config(1)
     with_pool(t, proc(t: ^testing.T, p: ^Pool) {
         conn, err := acquire(p)
         testing.expect(t, err == .None, "acquire failed")

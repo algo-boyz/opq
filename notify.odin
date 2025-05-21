@@ -8,7 +8,6 @@ import "core:fmt"
 // Construct "LISTEN <channel_name>" query
 listen :: proc(conn: pq.Conn, channel: string) -> Err {
     query_str := fmt.tprintf("LISTEN %s", channel)
-    defer delete(query_str)
     query_c := strings.clone_to_cstring(query_str)
     if query_c == nil {
         return .Allocation_Error
@@ -26,7 +25,6 @@ listen :: proc(conn: pq.Conn, channel: string) -> Err {
 // Construct "UNLISTEN <channel_name>" or "UNLISTEN *"
 unlisten :: proc(conn: pq.Conn, channel: string) -> Err {
     query_str := fmt.tprintf("UNLISTEN %s", channel)
-    defer delete(query_str)
     query_c := strings.clone_to_cstring(query_str)
     if query_c == nil {
         return .Allocation_Error
@@ -157,7 +155,7 @@ consume_notifications :: proc(conn: pq.Conn) -> (notifications: [dynamic]Notific
         // rebuilds the list. We've cloned the strings, so those are callers responsibility.
     }
     if len(notifs_list) > 0 {
-        return transmute([dynamic]Notification)notifs_list, .None
+        return notifs_list, .None
     }
     return nil, .None
 }
