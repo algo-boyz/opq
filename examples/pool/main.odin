@@ -13,18 +13,16 @@ main :: proc() {
 
     context.logger = log.create_console_logger(opt = log.Options{.Level, .Terminal_Color, .Short_File_Path, .Line} | log.Full_Timestamp_Opts )
     defer log.destroy_console_logger(context.logger)
-    
-	cfg := opq.default_config()
-    log.info(fmt.tprintf("default config: %v", cfg))
+
+    cfg := opq.default_config()
     p, err := opq.new_pool(&cfg)
         if err != nil {
         log.error(fmt.tprintf("new pool failed: %v", err))
         return
     }
-    defer opq.close_pool(p) // Ensure pool is closed
+    defer opq.close_pool(p)
 
     log.info("acquiring connection...")
-
     conn, err2 := opq.acquire(p)
     if err2 != nil {
         log.error(fmt.tprintf("acquire failed: %v", err2))

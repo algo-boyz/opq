@@ -7,14 +7,7 @@ import "core:fmt"
 
 // Construct "LISTEN <channel_name>" query
 listen :: proc(conn: pq.Conn, channel: string) -> Err {
-    query_str := fmt.tprintf("LISTEN %s", channel)
-    query_c := strings.clone_to_cstring(query_str)
-    if query_c == nil {
-        return .Allocation_Error
-    }
-    defer delete(query_c)
-
-    res, err_code := exec(conn, query_c)
+    res, err_code := exec(conn, fmt.tprintf("LISTEN %s", channel))
     if err_code != .None {
         return err_code
     }
@@ -24,14 +17,7 @@ listen :: proc(conn: pq.Conn, channel: string) -> Err {
 
 // Construct "UNLISTEN <channel_name>" or "UNLISTEN *"
 unlisten :: proc(conn: pq.Conn, channel: string) -> Err {
-    query_str := fmt.tprintf("UNLISTEN %s", channel)
-    query_c := strings.clone_to_cstring(query_str)
-    if query_c == nil {
-        return .Allocation_Error
-    }
-    defer delete(query_c)
-
-    res, err_code := exec(conn, query_c)
+    res, err_code := exec(conn, fmt.tprintf("UNLISTEN %s", channel))
     if err_code != .None {
         return err_code
     }
@@ -101,7 +87,7 @@ My_Result_Specific_Data :: struct { processed_rows: int }
 Notification :: struct {
     channel: string,
     payload: string,
-    be_pid:  i32,
+    pid:  i32,
 }
 
 // delete_notification frees all strings within the Notification struct
@@ -126,13 +112,7 @@ notify_channel :: proc(conn: pq.Conn, channel: string, payload: string) -> Err {
     } else {
         query = fmt.tprintf("NOTIFY %s", channel)
     }
-    query_c := strings.clone_to_cstring(query)
-    if query_c == nil {
-        log.error("notify_channel: Failed to allocate C string for query.")
-        return Err.Allocation_Error
-    }
-    defer delete(query_c)
-    res, err_code := exec(conn, query_c) 
+    res, err_code := exec(conn, query) 
     if err_code != Err.None {
         log.errorf("notify_channel: exec failed: %v", err_code)
         return err_code
@@ -164,7 +144,7 @@ consume_notifications :: proc(conn: pq.Conn) -> (notifications: [dynamic]Notific
         append(&notifs_list, Notification{
             channel = channel_str,
             payload = payload_str,
-            be_pid  = pq_notify_ptr.be_pid,
+            pid  = pq_notify_ptr.be_pid,
         })
         // IMPORTANT: pq.notifies() returns a pointer to an internally managed linked list.
         // The memory for the pq.Notify struct itself is managed by libpq and freed
@@ -184,7 +164,7 @@ main :: proc() {
         notifications, err := opq.consume_notifications(conn)
         if err == .None && notifications != nil {
             for notif in notifications {
-                fmt.printf("Received notification on channel '%s': %s (PID: %d)\n", notif.channel, notif.payload, notif.be_pid)
+                fmt.printf("Received notification on channel '%s': %s (PID: %d)\n", notif.channel, notif.payload, notif.pid)
                 opq.delete_notification(&notif)
             }
             delete(notifications)

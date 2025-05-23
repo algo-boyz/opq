@@ -37,6 +37,7 @@ to_string :: proc(c_str: cstring) -> string {
         log.errorf("Failed to clone_from_cstring: %v", err)
         return ""
     }
+    delete(c_str) // Free the C string after cloning
     return s
 }
 
@@ -257,7 +258,7 @@ with_tx :: proc(conn: pq.Conn, body: proc(tx_conn: pq.Conn) -> Err) -> (err: Err
 }
 
 // new_migration sets up the necessary database table if it doesn't exist.
-create_migration :: proc(conn: pq.Conn, query: cstring) -> (err: Err) {
+create_migration :: proc(conn: pq.Conn, query: string) -> (err: Err) {
     res, create_err := exec(conn, query)
     if create_err != .None {
         log.errorf("Failed to execute migration query: %v", create_err)
@@ -268,7 +269,7 @@ create_migration :: proc(conn: pq.Conn, query: cstring) -> (err: Err) {
 }
 
 // delete removes a row from the database.
-del :: proc(conn: pq.Conn, query: cstring, arg: any) -> (err: Err) {
+del :: proc(conn: pq.Conn, query: string, arg: any) -> (err: Err) {
 	res, exec_err := exec(conn, query, arg)
 	if exec_err != .None {
 		return exec_err
@@ -284,17 +285,23 @@ del :: proc(conn: pq.Conn, query: cstring, arg: any) -> (err: Err) {
 // exec is an Odin-friendly wrapper for pq.exec_params
 // It converts variadic Odin arguments to C params and manages their memory.
 // The caller is responsible to clear the returned result.
-exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (res: pq.Result, err: Err) {
+exec :: proc(conn: pq.Conn, query: string, args: ..any) -> (res: pq.Result, err: Err) {
+    c_str := strings.clone_to_cstring(query)
+    if c_str == nil {
+        log.error("notify_channel: Failed to allocate C string for query.")
+        return nil, .Allocation_Error
+    }
+    defer delete(c_str)
     n_params := len(args)
     if n_params == 0 {
-        raw_res := pq.exec(conn, query)
-        if raw_res == nil {
+        res = pq.exec(conn, c_str)
+        if res == nil {
             err_msg := to_string(pq.error_message(conn))
             log.error(err_msg)
             delete(err_msg)
             return nil, .Query_Failed
         }
-        return raw_res, .None 
+        return res, .None 
     }
     // Slices themselves are on stack; arrays are heap-allocated with make
     param_values_c  := make([][^]byte, n_params)
@@ -322,7 +329,7 @@ exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (res: pq.Result, err
     }
     res = pq.exec_params(
         conn,
-        query,
+        c_str,
         i32(n_params),
         nil,                 // param_types (OIDs) - let server infer. Can be specified for more control.
         &param_values_c[0],  // Pointer to the first element
@@ -336,7 +343,7 @@ exec :: proc(conn: pq.Conn, query: cstring, args: ..any) -> (res: pq.Result, err
 // query_rows executes a query that returns multiple rows and scans them
 // into the `dest` slice. `dest` should be a pointer to a slice of structs.
 // Manages pq.Result clearing.
-query_rows :: proc(conn: pq.Conn, dest_slice_ptr: ^[dynamic]$T, query: cstring, args: ..any) -> (err: Err) {
+query_rows :: proc(conn: pq.Conn, dest_slice_ptr: ^[dynamic]$T, query: string, args: ..any) -> (err: Err) {
 	res: pq.Result
     res, err = exec(conn, query, ..args)
 	if err != .None {
@@ -365,7 +372,7 @@ query_rows :: proc(conn: pq.Conn, dest_slice_ptr: ^[dynamic]$T, query: cstring, 
 
 // query_row executes a query expected to return one row (or zero for Not_Found)
 // and scan it into the `dest` struct.
-query_row :: proc(conn: pq.Conn, dest_struct_ptr: ^$T, query: cstring, args: ..any) -> Err {
+query_row :: proc(conn: pq.Conn, dest_struct_ptr: ^$T, query: string, args: ..any) -> Err {
 	res, err := exec(conn, query, ..args)
 	if err != .None {
 		return err
